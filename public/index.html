@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>UV Proxy</title>
+  <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background: #0d0d0d;
+      color: #fff;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      gap: 20px;
+    }
+
+    h1 {
+      font-size: 2.8rem;
+      color: #8b5cf6;
+    }
+
+    p.subtitle { color: #888; }
+
+    .search-box {
+      display: flex;
+      width: 100%;
+      max-width: 640px;
+      gap: 10px;
+      padding: 0 16px;
+    }
+
+    #url-input {
+      flex: 1;
+      padding: 14px 18px;
+      font-size: 1rem;
+      border-radius: 12px;
+      border: 2px solid #8b5cf6;
+      background: #1a1a1a;
+      color: #fff;
+      outline: none;
+    }
+
+    #url-input:focus { border-color: #a78bfa; }
+
+    #go-btn {
+      padding: 14px 22px;
+      font-size: 1rem;
+      background: #8b5cf6;
+      color: #fff;
+      border: none;
+      border-radius: 12px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #go-btn:hover { background: #7c3aed; }
+    #go-btn:disabled { background: #444; cursor: not-allowed; }
+
+    #status {
+      font-size: 0.85rem;
+      height: 20px;
+      color: #f59e0b;
+    }
+
+    #status.ready { color: #22c55e; }
+    #status.error { color: #ef4444; }
+
+    #overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      background: #000;
+      flex-direction: column;
+    }
+
+    #overlay.active { display: flex; }
+
+    #toolbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #1a1a1a;
+      padding: 8px 12px;
+      border-bottom: 2px solid #8b5cf6;
+    }
+
+    #toolbar button {
+      padding: 6px 14px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: bold;
+      color: white;
+    }
+
+    #close-btn { background: #ef4444; }
+    #close-btn:hover { background: #dc2626; }
+    #back-btn, #refresh-btn, #home-btn { background: #374151; }
+    #back-btn:hover, #refresh-btn:hover, #home-btn:hover { background: #4b5563; }
+
+    #toolbar-url {
+      flex: 1;
+      padding: 6px 12px;
+      border-radius: 8px;
+      border: 1px solid #8b5cf6;
+      background: #0d0d0d;
+      color: #fff;
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    #go-inline-btn {
+      background: #8b5cf6;
+      color: white;
+      padding: 6px 14px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+
+    #go-inline-btn:hover { background: #7c3aed; }
+
+    #proxy-frame {
+      flex: 1;
+      width: 100%;
+      border: none;
+      background: #fff;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>🔮 UV Proxy</h1>
+  <p class="subtitle">Browse freely and privately</p>
+
+  <div class="search-box">
+    <input type="text" id="url-input" placeholder="Enter URL or search..."/>
+    <button id="go-btn" disabled>Loading...</button>
+  </div>
+
+  <p id="status">⏳ Registering service worker...</p>
+
+  <div id="overlay">
+    <div id="toolbar">
+      <button id="close-btn">✕ Close</button>
+      <button id="back-btn">← Back</button>
+      <button id="refresh-btn">↻ Refresh</button>
+      <button id="home-btn">🏠 Home</button>
+      <input type="text" id="toolbar-url" placeholder="Enter URL..."/>
+      <button id="go-inline-btn">Go</button>
+    </div>
+    <iframe id="proxy-frame" sandbox="allow-same-origin allow-scripts allow-forms allow-popups"></iframe>
+  </div>
+
+  <script src="/uv/uv.bundle.js"></script>
+  <script src="/uv/uv.config.js"></script>
+
+  <script>
+    const goBtn = document.getElementById("go-btn");
+    const urlInput = document.getElementById("url-input");
+    const status = document.getElementById("status");
+    const overlay = document.getElementById("overlay");
+    const frame = document.getElementById("proxy-frame");
+    const toolbarUrl = document.getElementById("toolbar-url");
+
+    async function registerSW() {
+      if (!("serviceWorker" in navigator)) {
+        status.textContent = "❌ Service Workers not supported.";
+        status.className = "error";
+        return;
+      }
+
+      try {
+        const reg = await navigator.serviceWorker.register("/uv/uv.sw.js", {
+          scope: "/service/",
+        });
+
+        if (reg.installing || reg.waiting) {
+          await new Promise((resolve) => {
+            const sw = reg.installing || reg.waiting;
+            sw.addEventListener("statechange", (e) => {
+              if (e.target.state === "activated") resolve();
+            });
+          });
+        }
+
+        status.textContent = "✅ Ready! Enter a URL and click Go.";
+        status.className = "ready";
+        goBtn.disabled = false;
+        goBtn.textContent = "Go";
+      } catch (err) {
+        status.textContent = `❌ Error: ${err.message}`;
+        status.className = "error";
+      }
+    }
+
+    function formatUrl(input) {
+      input = input.trim();
+      if (!input) return null;
+      if (input.startsWith("http://") || input.startsWith("https://")) return input;
+      if (/^[\w-]+\.[a-z]{2,}/.test(input) && !input.includes(" ")) return "https://" + input;
+      return "https://www.google.com/search?q=" + encodeURIComponent(input);
+    }
+
+    function navigate(rawUrl) {
+      const url = formatUrl(rawUrl);
+      if (!url) return;
+      const encoded = __uv$config.encodeUrl(url);
+      const proxied = __uv$config.prefix + encoded;
+      frame.src = proxied;
+      toolbarUrl.value = url;
+      overlay.classList.add("active");
+    }
+
+    goBtn.addEventListener("click", () => navigate(urlInput.value));
+    urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") navigate(urlInput.value); });
+    document.getElementById("go-inline-btn").addEventListener("click", () => navigate(toolbarUrl.value));
+    toolbarUrl.addEventListener("keydown", (e) => { if (e.key === "Enter") navigate(toolbarUrl.value); });
+
+    document.getElementById("close-btn").addEventListener("click", () => {
+      overlay.classList.remove("active");
+      frame.src = "";
+    });
+
+    document.getElementById("back-btn").addEventListener("click", () => {
+      frame.contentWindow.history.back();
+    });
+
+    document.getElementById("refresh-btn").addEventListener("click", () => {
+      frame.contentWindow.location.reload();
+    });
+
+    document.getElementById("home-btn").addEventListener("click", () => {
+      overlay.classList.remove("active");
+      frame.src = "";
+    });
+
+    registerSW();
+  </script>
+
+</body>
+</html>
